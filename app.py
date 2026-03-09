@@ -107,10 +107,22 @@ def create_rag_agent(vectorstore):
     tools = [retrieval_tool]
 
     system_prompt = """
-    You are a helpful assistant that answers questions
-    using the provided PDF knowledge base.
+    You are a helpful assistant that answers questions using the provided PDF knowledge base.
 
-    Always use the retrieval tool before answering.
+    IMPORTANT INSTRUCTIONS:
+    1. Always use the retrieval tool to search the PDF first
+    2. Read and understand the retrieved context carefully
+    3. Provide CLEAR, CONCISE, and DIRECT answers
+    4. Answer only what is asked - no extra information
+    5. Use simple language and short sentences
+    6. If the answer is a list, use bullet points
+    7. Do NOT return raw chunks or metadata from the PDF
+    8. Synthesize information into a natural, human-readable response
+
+    Example:
+    Question: "In which language does the person work?"
+    Bad: [Returns full resume chunks with metadata]
+    Good: "The person works with JavaScript, TypeScript, and SQL."
     """
 
     agent = create_agent(
@@ -127,22 +139,28 @@ def create_rag_agent(vectorstore):
 # =========================
 
 def chat(agent, query):
-
-    final_response = ""
-
+    """
+    Execute agent and return only the final AI response,
+    filtering out all tool calls and intermediate steps.
+    """
+    
+    messages = []
+    
     for event in agent.stream(
         {"messages": [{"role": "user", "content": query}]},
         stream_mode="values",
     ):
-
-        message = event["messages"][-1]
-
-        if hasattr(message, "content"):
-            if isinstance(message.content, list):
-                for part in message.content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        final_response += part["text"]
-            else:
-                final_response = message.content
-
-    return final_response
+        messages = event["messages"]
+    
+    # Get the last AI message (skip tool messages)
+    for message in reversed(messages):
+        if hasattr(message, "type") and message.type == "ai":
+            if hasattr(message, "content"):
+                if isinstance(message.content, str) and message.content:
+                    return message.content
+                elif isinstance(message.content, list):
+                    for part in message.content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            return part["text"]
+    
+    return "I couldn't generate a response."
